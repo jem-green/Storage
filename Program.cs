@@ -1,0 +1,106 @@
+﻿using System;
+using System.Data;
+using StorageLibrary;
+
+namespace Storage
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            PersistentStorage<Test> storage = new PersistentStorage<Test>();
+
+            // Create test
+
+            Test t = new Test
+            {
+                Int = 0,
+                String = "hello"
+            };
+            storage.Create(t);           // Create a new records
+            Test d;
+            for (int i = 0; i < storage.Size; i++)
+            {
+                d = storage.Read(i);
+                Console.WriteLine("create = [" + d + "}");
+            }
+
+            // Update test shorter
+
+            Test u = new Test
+            {
+                Int = 1,
+                String = "hi"
+            };
+            storage.Update(u, 0);       // Update some data
+            for (int i = 0; i < storage.Size; i++)
+            {
+                d = storage.Read(i);
+                Console.WriteLine("shorter = [" + d + "}");
+            }
+
+            // Read test
+            // Add another record and check both are listed
+
+            t = new Test
+            {
+                Int = 2,
+                String = "welcome"
+            };
+            storage.Create(t);           // Create a new records
+
+            for (int i = 0; i < storage.Size; i++)
+            {
+                d = storage.Read(i);
+                Console.WriteLine("mutiple = [" + d + "}");
+            }
+
+            // Delete test
+            // Check that the second record is returned
+
+            storage.Delete(0);          // Delete some data
+            for (int i = 0; i < storage.Size; i++)
+            {
+                d = storage.Read(i);
+                Console.WriteLine("delete = [" + d + "}");
+            }
+
+            // create more data to check effect of delete
+
+            t = new Test
+            {
+                Int = 3,
+                String = "bonjour"
+            };
+            storage.Create(t);           // Create a new records
+            for (int i = 0; i < storage.Size; i++)
+            {
+                d = storage.Read(i);
+                Console.WriteLine("post create = [" + d + "}");
+            }
+
+            // Update test longer
+
+            u = new Test
+            {
+                Int = 4,
+                String = "konnichiwa"
+            };
+            storage.Update(u, 0);       // Update some data
+            for (int i = 0; i < storage.Size; i++)
+            {
+                d = storage.Read(i);
+                Console.WriteLine("longer = [" + d + "}");
+            }
+
+            // Test for each
+
+            foreach (Test e in storage)
+            {
+                Console.WriteLine("foreach = [" + e + "}");
+            }
+
+        }
+    }
+}
+
