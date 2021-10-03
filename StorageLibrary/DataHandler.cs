@@ -50,6 +50,7 @@ namespace StorageLibrary
 
         0 - unsigned byte - Offset assuming a field name is less than 255 characters (0-255)
         0 - unsigned byte - Flag 0 = normal, 1 = deleted, 2 = spare
+        0 - unsigned byte - Field order
         0 - unsigned byte - Field type enum value (0-255)
         0 - unsigned byte - If string or blob set the length (0-255)
         0 - unsigned byte - Primary key 0 - No, 1 - Yes (0-1)
@@ -109,14 +110,16 @@ namespace StorageLibrary
         {
             string _name;
             byte _flag;
+            byte _order;
             TypeCode _type;
             sbyte _length;
             bool _primary;
 
-            internal Field(string name, byte flag, TypeCode type, sbyte length, bool primary)
+            internal Field(string name, byte flag, byte order, TypeCode type, sbyte length, bool primary)
             {
                 _name = name;
                 _flag = flag;
+                _order = order;
                 _type = type;
                 _length = length;
                 _primary = primary;
@@ -157,6 +160,19 @@ namespace StorageLibrary
                     return (_name);
                 }
             }
+
+            internal byte Order
+            {
+                set
+                {
+                    _order = value;
+                }
+                get
+                {
+                    return (_order);
+                }
+            }
+
             internal bool Primary
             {
                 set
@@ -253,6 +269,14 @@ namespace StorageLibrary
             }
         }
 
+        //internal ArrayList List
+        //{
+        //    get
+        //    {
+        //        return (new ArrayList(_fields));
+        //    }
+        //}
+
         #endregion
         #region Methods
 
@@ -300,6 +324,7 @@ namespace StorageLibrary
                     binaryReader.BaseStream.Seek(_start + pointer, SeekOrigin.Begin);    // Move to the field as may have been updated
                     byte offset = binaryReader.ReadByte();                      // Read the field offset
                     byte flag = binaryReader.ReadByte();                        // Read the status flag
+                    byte order = binaryReader.ReadByte();                       // Read the field order
                     TypeCode typeCode = (TypeCode)binaryReader.ReadByte();      // Read the field Type
                     sbyte length = binaryReader.ReadSByte();                    // Read the field Length
                     bool primary = false;                                       // Read if the primary key
@@ -308,9 +333,9 @@ namespace StorageLibrary
                         primary = true;
                     }
                     string name = binaryReader.ReadString();                    // Read the field Name
-                    if (flag == 0)  // Not deleted or spare
+                    if (flag == 0)  // Not deleted or spare so add rather than skip
                     {
-                        Field field = new Field(name, flag, typeCode, length, primary);
+                        Field field = new Field(name, flag, order, typeCode, length, primary);
                         _fields[count] = field;
                     }
                     pointer = (UInt16)(pointer + offset);
@@ -390,6 +415,7 @@ namespace StorageLibrary
                 //
                 // 0 - unsigned byte - offset
                 // 0 - unsigned byte - flag 0 = normal, 1 = deleted, 2 = Spare
+                // 0 - unsigned byte - Field order (0-255)
                 // 0 - unsigned byte - Field type enum value (0-255)
                 // 0 - unsigned byte - If string or blob set the length (0-255)
                 // 0 - unsigned byte - Primary key 0 - No, 1 - Yes (0-1)
@@ -399,6 +425,7 @@ namespace StorageLibrary
                 // The structure repeats
                 //
 
+                byte order = 0;
                 TypeCode typeCode = field.Type;
 
                 // Update the local cache
@@ -410,7 +437,7 @@ namespace StorageLibrary
 
                 int offset = 0;
                 int length = field.Name.Length;
-                offset = offset + 5 + LEB128.Size(length) + length;
+                offset = offset + 6 + LEB128.Size(length) + length;     // 5 = number of bytes before string name
 
                 // move the data
 
@@ -427,6 +454,7 @@ namespace StorageLibrary
                 byte flag = 0;                                  // Normal
                 binaryWriter.Write((byte)offset);               // write the offset to next field
                 binaryWriter.Write(flag);                       // write the field Flag
+                binaryWriter.Write(order);                      // write the field Order
                 binaryWriter.Write((byte)typeCode);             // write the field Type
                 binaryWriter.Write((sbyte)field.Length);        // write the field Length
                 if (field.Primary == true)                      // write the primary key indicator (byte)
@@ -459,6 +487,7 @@ namespace StorageLibrary
         /// <param name="field"></param>
         internal bool Remove(Field field)
         {
+            int index = 0;
             bool delete = false;
             string filenamePath = System.IO.Path.Combine(_path, _name);
             lock (_lockObject)
@@ -472,15 +501,24 @@ namespace StorageLibrary
                 for (int counter = 0; counter < _size; counter++)
                 {
                     binaryReader.BaseStream.Seek(_start + pointer, SeekOrigin.Begin);
+
+                    // Could read the 5 bytes in one go or move the pointer but need some of the field data
+
                     byte offset = binaryReader.ReadByte();                      // Read the field offset
                     flag = binaryReader.ReadByte();                             // Read the status flag
+                    byte order = binaryReader.ReadByte();                       // Read the order
                     TypeCode typeCode = (TypeCode)binaryReader.ReadByte();      // Read the field Type
                     sbyte length = binaryReader.ReadSByte();                    // Read the field Length
-                    binaryReader.ReadByte();                                    // Read if the primary key, just use to skip byte
+                    bool primary = false;                                       // Read if the primary key
+                    if (binaryReader.ReadByte() == 1)
+                    {
+                        primary = true;
+                    }
                     string name = binaryReader.ReadString();                    // Read the field Name
 
                     if ((flag == 0) && (name == field.Name))
                     {
+                        index = counter;
                         delete = true;
                         break;
                     }
@@ -492,11 +530,24 @@ namespace StorageLibrary
                 binaryReader.Close();
 
                 BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Open));
-                binaryWriter.Seek(_start + pointer + 1, SeekOrigin.Begin);
-                flag = 1;                                       // Set the delete flag
-                binaryWriter.Write(flag);                       // write the field Flag
-                binaryWriter.Close();                           //
-                binaryWriter.Dispose();                         //
+                binaryWriter.Seek(_start + pointer + 1, SeekOrigin.Begin);  // Skip the offset as unchanged
+                flag = 1;                                                   // Set the delete flag
+                binaryWriter.Write(flag);                                   // write the field Flag
+                binaryWriter.Close();                                       //
+                binaryWriter.Dispose();                                     //
+
+                // Move the cache data downwards
+                // The challnge is then ensuring that the 
+                // deleted field is skipped when read in
+                // the other methods
+
+                for (int i = index; i < _items - 1; i++)
+                {
+                    _fields[i] = _fields[i + 1];
+                }
+                _items--;
+                Array.Resize(ref _fields, _items);
+
             }
             return (delete);
         }
@@ -519,14 +570,14 @@ namespace StorageLibrary
 
                     BinaryReader binaryReader = new BinaryReader(new FileStream(filenamePath + ".dbf", FileMode.Open));
                     UInt16 pointer = 0;
-                    byte length = 0;
+                    byte offset = 0;
                     for (int counter = 0; counter < _items; counter++)
                     {
                         binaryReader.BaseStream.Seek(_start + pointer, SeekOrigin.Begin);
-                        length = binaryReader.ReadByte();
+                        offset = binaryReader.ReadByte();
                         if (counter != index)
                         {
-                            pointer = (UInt16)(pointer + length);
+                            pointer = (UInt16)(pointer + offset);
                         }
                         else
                         {
@@ -542,9 +593,12 @@ namespace StorageLibrary
                     binaryWriter.Close();                           //
                     binaryWriter.Dispose();                         //
 
-                    // Move the cache data
+                    // Move the cache data downwards
+                    // The challenge is then ensuring that the 
+                    // deleted field is skipped when read in the
+                    // other methods
 
-                    for (int i = index; i < _items; i++)
+                    for (int i = index; i < _items-1; i++)
                     {
                         _fields[i] = _fields[i + 1];
                     }
@@ -564,12 +618,11 @@ namespace StorageLibrary
         /// </summary>
         /// <param name="field"></param>
         /// <param name="index"></param>
-        private void Set(Field field, int index)
+        internal void Set(Field field, int index)
         {
             // Update the local cache then write to disk but
             // this is more complex as need to reinsert the column name 
             // if it is longer then move the data.
-            // At the moment just update the local cache
 
             string filenamePath = System.IO.Path.Combine(_path, _name);
             lock (_lockObject)
@@ -580,7 +633,7 @@ namespace StorageLibrary
 
                     // Calculate the new data size
 
-                    int offset = 5;
+                    int offset = 6;                    // 6 = number of bytes before the field name
                     int l = field.Name.Length;
                     offset = offset + LEB128.Size(l) + l;
 
@@ -617,11 +670,12 @@ namespace StorageLibrary
                         binaryWriter.Seek(_data, SeekOrigin.Begin);
 
                         byte flag = 0;
-                        binaryWriter.Write((byte)length);              // write the length
-                        binaryWriter.Write(flag);                      // write the field Flag
-                        binaryWriter.Write((byte)field.Type);          // write the field Type
-                        binaryWriter.Write((sbyte)field.Length);       // write the field Length
-                        if (field.Primary == true)                     // write the primary key indicator (byte)
+                        binaryWriter.Write((byte)length);               // write the length
+                        binaryWriter.Write(flag);                       // write the field Flag
+                        binaryWriter.Write((byte)field.Order);          // write the field Order
+                        binaryWriter.Write((byte)field.Type);           // write the field Type
+                        binaryWriter.Write((sbyte)field.Length);        // write the field Length
+                        if (field.Primary == true)                      // write the primary key indicator (byte)
                         {
                             binaryWriter.Write((byte)1);
                         }
@@ -629,10 +683,10 @@ namespace StorageLibrary
                         {
                             binaryWriter.Write((byte)0);
                         }
-                        binaryWriter.Write(field.Name);                // Write the field Name
+                        binaryWriter.Write(field.Name);                 // Write the field Name
 
                         _data = (UInt16)(_data + offset);
-                        _items = (byte)(_items + 1);
+                        //_items = (byte)(_items + 1);                  // Number of fields remains the same
 
                         binaryWriter.Seek(0, SeekOrigin.Begin);
                         _size++;                                        //
@@ -641,17 +695,23 @@ namespace StorageLibrary
                         binaryWriter.Write(_data);                      // Write pointer to new data area
                         binaryWriter.Write(_items);                     // write new number of records
                         binaryWriter.Close();                           //
-                        binaryWriter.Dispose();                         // 37
+                        binaryWriter.Dispose();                         //
+
+                        // This looks wrong as the order has changed
+                        // and so this will affect the storage
+
+                        
                     }
                     else
                     {
                         // The new field name is shorter so can overrite
 
                         BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Open));
-                        binaryWriter.Seek(_start + pointer + 2, SeekOrigin.Begin);
+                        binaryWriter.Seek(_start + pointer + 3, SeekOrigin.Begin);  // 3 = Skip the bytes
 
                         // Keep the field space as original
                         // No need to overwrite the flag
+
                         binaryWriter.Write((byte)field.Type);          // write the field Type
                         binaryWriter.Write((sbyte)field.Length);       // write the field Length
                         if (field.Primary == true)                     // write the primary key indicator (byte)
@@ -678,11 +738,12 @@ namespace StorageLibrary
         /// </summary>
         /// <param name="index"></param>
         /// <returns></returns>
-        private Field Get(int index)
+        internal Field Get(int index)
         {
             if ((index >= 0) && (index < _items))
             {
-                // Build from cache
+                // Build from cache, but could 
+                // have an option to rebuild from disk
 
                 Field field = _fields[index];
                 return (field);
@@ -824,7 +885,6 @@ namespace StorageLibrary
             }
         }
 
-
         /// <summary>
         /// Read Row
         /// </summary>
@@ -839,7 +899,6 @@ namespace StorageLibrary
                 if ((index >= 0) && (index <= _size))
                 {
                     data = new object[Items];
-
                     string filenamePath = System.IO.Path.Combine(_path, _name);
                     // Need to search the index file
 
@@ -884,6 +943,7 @@ namespace StorageLibrary
             }
             return (data);
         }
+		
         internal bool Update(object[] row, int index)
         {
             bool updated = false;
@@ -1157,6 +1217,7 @@ namespace StorageLibrary
                         else
                         {
                             byte flag = binaryReader.ReadByte();                    // Read the status flag
+                            byte order = binaryReader.ReadByte();                   // Read the Order
                             TypeCode typeCode = (TypeCode)binaryReader.ReadByte();  // Read the field Type
                             sbyte length = binaryReader.ReadSByte();                // Read the field Length
                             bool primary = false;                                   // Read if the primary key
@@ -1165,7 +1226,7 @@ namespace StorageLibrary
                                 primary = true;
                             }
                             string name = binaryReader.ReadString();                // Read the field Name
-                            field = new Field(name, flag, typeCode, length, primary);
+                            field = new Field(name, flag, order, typeCode, length, primary);
                             break;
                         }
                     }

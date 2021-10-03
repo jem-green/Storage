@@ -2,7 +2,7 @@
 using System.Data;
 using StorageLibrary;
 
-namespace Storage
+namespace StorageConsole
 {
     class Program
     {

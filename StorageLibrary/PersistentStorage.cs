@@ -33,10 +33,20 @@ namespace StorageLibrary
                 // to create the fields list to create the new 
 
                 IList<PropertyInfo> props = new List<PropertyInfo>(type.GetProperties());
-                foreach (PropertyInfo prop in props)
+                byte index = 0; // Can only have 255 properties
+                if (props.Count < 256)
                 {
-                    DataHandler.Field field = new DataHandler.Field(prop.Name, 0, Type.GetTypeCode(prop.PropertyType), -1, false);
-                    _handler.Add(field);
+                    foreach (PropertyInfo prop in props)
+                    {
+                        byte flag = 0; // Flag 0 = normal, 1 = deleted, 2 = spare
+                        DataHandler.Field field = new DataHandler.Field(prop.Name, flag, index, Type.GetTypeCode(prop.PropertyType), -1, false);
+                        _handler.Add(field);
+                        index++;
+                    }
+                }
+                else
+                {
+                    throw new IndexOutOfRangeException("More than 255 properties");
                 }
             }
         }
@@ -56,11 +66,22 @@ namespace StorageLibrary
 
                 Type type = typeof(T);
                 IList<PropertyInfo> props = new List<PropertyInfo>(type.GetProperties());
-                foreach (PropertyInfo prop in props)
+                byte index = 0; // Can only have 255 properties
+                if (props.Count < 256)
                 {
-                    DataHandler.Field field = new DataHandler.Field(prop.Name, 0, Type.GetTypeCode(prop.PropertyType), -1, false);
-                    _handler.Add(field);
+                    foreach (PropertyInfo prop in props)
+                    {
+                        byte flag = 0; // Flag 0 = normal, 1 = deleted, 2 = spare
+                        DataHandler.Field field = new DataHandler.Field(prop.Name, flag,  index, Type.GetTypeCode(prop.PropertyType), -1, false);
+                        _handler.Add(field);
+                        index++;
+                    }
                 }
+                else
+                {
+                    throw new IndexOutOfRangeException("More than 255 properties");
+                }
+
             }
         }
 
