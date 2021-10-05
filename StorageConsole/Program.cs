@@ -8,17 +8,17 @@ namespace StorageConsole
     {
         static void Main(string[] args)
         {
-            PersistentStorage<Test> storage = new PersistentStorage<Test>();
+            PersistentStorage<TestClass> storage = new PersistentStorage<TestClass>(true);
 
-            // Create test
+            // Create test class
 
-            Test t = new Test
+            TestClass t = new TestClass
             {
                 Int = 0,
                 String = "hello"
             };
             storage.Create(t);           // Create a new records
-            Test d;
+            TestClass d;
             for (int i = 0; i < storage.Size; i++)
             {
                 d = storage.Read(i);
@@ -27,7 +27,7 @@ namespace StorageConsole
 
             // Update test shorter
 
-            Test u = new Test
+            TestClass u = new TestClass
             {
                 Int = 1,
                 String = "hi"
@@ -42,7 +42,7 @@ namespace StorageConsole
             // Read test
             // Add another record and check both are listed
 
-            t = new Test
+            t = new TestClass
             {
                 Int = 2,
                 String = "welcome"
@@ -67,7 +67,7 @@ namespace StorageConsole
 
             // create more data to check effect of delete
 
-            t = new Test
+            t = new TestClass
             {
                 Int = 3,
                 String = "bonjour"
@@ -81,7 +81,7 @@ namespace StorageConsole
 
             // Update test longer
 
-            u = new Test
+            u = new TestClass
             {
                 Int = 4,
                 String = "konnichiwa"
@@ -95,7 +95,7 @@ namespace StorageConsole
 
             // Test for each
 
-            foreach (Test e in storage)
+            foreach (TestClass e in storage)
             {
                 Console.WriteLine("foreach = [" + e + "}");
             }

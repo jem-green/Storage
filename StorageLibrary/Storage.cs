@@ -6,7 +6,7 @@ using System.Text;
 
 namespace StorageLibrary
 {
-    public class PersistentStorage<T> where T :  class, new()
+    public class Storage<T> where T : struct
     {
         #region Fields
 
@@ -20,7 +20,7 @@ namespace StorageLibrary
         /// <summary>
         /// Open or create a new store base on the type name
         /// </summary>
-        public PersistentStorage()
+        public Storage()
         {
             // Open or create a new store base on the type name
 
@@ -58,7 +58,7 @@ namespace StorageLibrary
         /// Reset, Open or create a new store based on the type
         /// </summary>
         /// <param name="reset"></param>
-        public PersistentStorage(bool reset)
+        public Storage(bool reset)
         {
             // Reset, Open or create a new store based on the type
 
@@ -98,7 +98,7 @@ namespace StorageLibrary
         /// <param name="path"></param>
         /// <param name="filename"></param>
         /// <param name="reset"></param>
-        public PersistentStorage(string path, string filename, bool reset)
+        public Storage(string path, string filename, bool reset)
         {
             Type type = typeof(T);
             _path = path;
@@ -133,6 +133,14 @@ namespace StorageLibrary
 
         #endregion
         #region Properties
+        
+        public DataHandler Handler
+        {
+            get
+            {
+                return (_handler);
+            }
+        }
 
         public int Size
         {

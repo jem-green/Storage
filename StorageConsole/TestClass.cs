@@ -1,13 +1,19 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Runtime.InteropServices;
 
 namespace StorageConsole
 {
-    public class Test
+    public class TestClass
     {
+        #region Variables
+
         int _intData;
         string _stringData;
+
+        #endregion
+        #region Properties
 
         public int Int
         {
@@ -33,19 +39,18 @@ namespace StorageConsole
             }
         }
 
+        #endregion
+        #region Methods
+
         // Method 
-
-        public byte[] Serialise()
-        {
-            byte[] b = new byte[10];
-            return (b);
-
-        }
 
         public override string ToString()
         {
             return ("Int=" + _intData + " String=" + _stringData);
         }
 
+        #endregion
+
     }
+
 }

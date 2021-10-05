@@ -3,7 +3,13 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>netcoreapp3.1</TargetFramework>
+    <StartupObject>StorageConsole.Performance</StartupObject>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Perf.cs" />
+    <Compile Remove="x.cs" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\StorageLibrary\StorageLibrary.csproj" />
