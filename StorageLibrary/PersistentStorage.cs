@@ -42,7 +42,7 @@ namespace StorageLibrary
                     foreach (PropertyInfo prop in props)
                     {
                         byte flag = 0; // Flag 0 = normal, 1 = deleted, 2 = spare
-                        DataHandler.Field field = new DataHandler.Field(prop.Name, flag, index, Type.GetTypeCode(prop.PropertyType), -1, false);
+                        DataHandler.Property field = new DataHandler.Property(prop.Name, flag, index, Type.GetTypeCode(prop.PropertyType), -1, false);
                         _handler.Add(field);
                         index++;
                     }
@@ -80,7 +80,7 @@ namespace StorageLibrary
                     foreach (PropertyInfo prop in props)
                     {
                         byte flag = 0; // Flag 0 = normal, 1 = deleted, 2 = spare
-                        DataHandler.Field field = new DataHandler.Field(prop.Name, flag, index, Type.GetTypeCode(prop.PropertyType), -1, false);
+                        DataHandler.Property field = new DataHandler.Property(prop.Name, flag, index, Type.GetTypeCode(prop.PropertyType), -1, false);
                         _handler.Add(field);
                         index++;
                     }
@@ -119,7 +119,7 @@ namespace StorageLibrary
                     foreach (PropertyInfo prop in props)
                     {
                         byte flag = 0; // Flag 0 = normal, 1 = deleted, 2 = spare
-                        DataHandler.Field field = new DataHandler.Field(prop.Name, flag,  index, Type.GetTypeCode(prop.PropertyType), -1, false);
+                        DataHandler.Property field = new DataHandler.Property(prop.Name, flag,  index, Type.GetTypeCode(prop.PropertyType), -1, false);
                         _handler.Add(field);
                         index++;
                     }

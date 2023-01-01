@@ -1,106 +1,84 @@
 ﻿using System;
-using System.Data;
 using StorageLibrary;
+using System.CommandLine;
+using System.CommandLine.Parser;
+using System.CommandLine.Invocation;
 
 namespace StorageConsole
 {
+    /// <summary>
+    /// Simple command line to return results
+    /// More like the docker command line so
+    /// not a query language just parameters
+    /// </summary>
     class Program
     {
-        static void Main(string[] args)
+        // Need the name and location of the file to read
+        // could pass this as a single parameter if nothing
+        // else is supplied
+        // so --name --path
+        // and log to the console all the data in cvs format
+
+        #region Fields
+
+        string name = "";
+        string path = "";
+        PersistentStorage<> _storage;
+
+        #endregion
+
+        static int Main(string[] args)
         {
-            PersistentStorage<TestClass> storage = new PersistentStorage<TestClass>(true);
-
-            // Create test class
-
-            TestClass t = new TestClass
+            var root = new RootCommand()
             {
-                Int = 0,
-                String = "hello"
+                 new Option<int>(new string[] { "--name", "-N" }, description: "The databse name"),
+                 new Option<int>(new string[] { "--path", "-P" }, description: "The databse path"),
             };
-            storage.Create(t);           // Create a new records
-            TestClass d;
-            for (int i = 0; i < storage.Size; i++)
-            {
-                d = storage.Read(i);
-                Console.WriteLine("create = [" + d + "}");
-            }
 
-            // Update test shorter
-
-            TestClass u = new TestClass
+            Command set = new Command("set", "Set the field")
             {
-                Int = 1,
-                String = "hi"
+
             };
-            storage.Update(u, 0);       // Update some data
-            for (int i = 0; i < storage.Size; i++)
-            {
-                d = storage.Read(i);
-                Console.WriteLine("shorter = [" + d + "}");
-            }
+            set.Handler = CommandHandler.Create<int>(HandleSet);
 
-            // Read test
-            // Add another record and check both are listed
-
-            t = new TestClass
+            Command delete = new Command("delete", "Delete record by index")
             {
-                Int = 2,
-                String = "welcome"
+                new Argument<int>("index","Record index")
             };
-            storage.Create(t);           // Create a new records
+            delete.Handler = CommandHandler.Create<int>(HandleDelete);
 
-            for (int i = 0; i < storage.Size; i++)
+            Command update = new Command("update", "Update record by index")
             {
-                d = storage.Read(i);
-                Console.WriteLine("mutiple = [" + d + "}");
-            }
-
-            // Delete test
-            // Check that the second record is returned
-
-            storage.Delete(0);          // Delete some data
-            for (int i = 0; i < storage.Size; i++)
-            {
-                d = storage.Read(i);
-                Console.WriteLine("delete = [" + d + "}");
-            }
-
-            // create more data to check effect of delete
-
-            t = new TestClass
-            {
-                Int = 3,
-                String = "bonjour"
+                new Option<int>(new string[] { "--index", "-I" }, description: "The record index"),
+                new Option(new string[] { "--all", "-A" }, description: "All records"),
             };
-            storage.Create(t);           // Create a new records
-            for (int i = 0; i < storage.Size; i++)
-            {
-                d = storage.Read(i);
-                Console.WriteLine("post create = [" + d + "}");
-            }
+            update.Handler = CommandHandler.Create<int, bool>(HandleUpdate);
 
-            // Update test longer
+            root.Add(delete);
+            root.Add(update);
 
-            u = new TestClass
-            {
-                Int = 4,
-                String = "konnichiwa"
-            };
-            storage.Update(u, 0);       // Update some data
-            for (int i = 0; i < storage.Size; i++)
-            {
-                d = storage.Read(i);
-                Console.WriteLine("longer = [" + d + "}");
-            }
-
-            // Test for each
-
-            foreach (TestClass e in storage)
-            {
-                Console.WriteLine("foreach = [" + e + "}");
-            }
-
+            return root.Invoke(args);
         }
+
+        private static void HandleDelete(int index)
+        {
+            //throw new NotImplementedException();
+        }
+
+        private static void HandleUpdate(int index, bool all)
+        {
+            //throw new NotImplementedException();
+        }
+
+        private static void HandleSet(int index, bool all)
+        {
+            // Field name
+            // Field type
+            // Field length if string
+
+
+            //throw new NotImplementedException();
+        }
+
     }
 }
-

@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Text;
 using StorageLibrary;
 
-namespace StorageConsole
+namespace StorageTest
 {
     class Performance
     {
@@ -28,17 +28,18 @@ namespace StorageConsole
                 Records per second 36.555043789114485
              */
 
-            int records = 1000;
-            SequentialTest(records);
+            int records;
+            records = 1000;
+            //SequentialTest(records);
 
             //records = 10000;
             //SequentialTest(records);
 
             //records = 100000;
-            //SequentialTest(records);
+            SequentialTest(records);
 
-            //records = 1000;
-            //RandomTest(records);
+            records = 1000;
+            RandomTest(records);
 
             //records = 10000;
             //RandomTest(records);
@@ -115,7 +116,7 @@ namespace StorageConsole
                     Int = i,
                     String = "hello"
                 };
-                storage.Create(t);           // Create a new records
+                storage.Create(t);           // Create a new record
             }
             sw.Stop();
             Console.WriteLine("Created {0} records in {1}", records, sw.Elapsed);

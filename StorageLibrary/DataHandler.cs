@@ -9,8 +9,17 @@ namespace StorageLibrary
     public class DataHandler
     {
         /*
-        Solve problem of passing the PersistentDataTable to the other
+        Solve problem of passing the PersistentStorage to the other
         classes, so nest the class 
+
+
+        012345678901234567890
+        ~--+-¬+~--+-¬.......~--+
+           |  |   |            |
+           |  |   |            +- Start of data
+           |  |   +- Field1 (6 + name)
+           |  +- Fields(7)
+           +- Header (6)
         
         Header
         ------
@@ -99,14 +108,17 @@ namespace StorageLibrary
         private string _name = "";
 
         private readonly object _lockObject = new Object();
-        private UInt16 _size = 0;               // number of elements
+        private UInt16 _size = 0;               // number of rows
         private readonly UInt16 _start = 7;     // Pointer to the start of the field area
         private UInt16 _pointer = 7;            // Pointer to current element offset from the data area
         private UInt16 _data = 7;               // pointer to start of data area
-        private byte _items = 0;                // number of field items
-        private Field[] _fields;                // Cache of fields
+        private byte _items = 0;                // number of fields
+        private Property[] _properties;         // cache of fields
 
-        internal struct Field
+        /// <summary>
+        /// Field properties
+        /// </summary>
+        internal struct Property
         {
             string _name;
             byte _flag;
@@ -115,7 +127,7 @@ namespace StorageLibrary
             sbyte _length;
             bool _primary;
 
-            internal Field(string name, byte flag, byte order, TypeCode type, sbyte length, bool primary)
+            internal Property(string name, byte flag, byte order, TypeCode type, sbyte length, bool primary)
             {
                 _name = name;
                 _flag = flag;
@@ -208,10 +220,14 @@ namespace StorageLibrary
             }
         }
 
-
         #endregion
         #region Constructor
 
+        /// <summary>
+        /// Create default with path, name location
+        /// </summary>
+        /// <param name="path"></param>
+        /// <param name="name"></param>
         public DataHandler(string path, string name)
         {
             _path = path;
@@ -261,11 +277,11 @@ namespace StorageLibrary
             }
         }
 
-        internal Field[] Fields
+        internal Property[] Fields
         {
             get
             {
-                return (_fields);
+                return (_properties);
             }
         }
 
@@ -280,18 +296,18 @@ namespace StorageLibrary
         #endregion
         #region Methods
 
-        // General methods
+        // General methods (OCR)
         // Open -
         // Close - 
         // Reset -
         //
-        // Column methods
+        // Field methods (ARSG)
         // Add -
         // Remove -
         // Set -
         // Get -
         // 
-        // Row methods (CRUD) 
+        // Record methods (CRUD) 
         // Create -
         // Read -
         // Update -
@@ -317,7 +333,7 @@ namespace StorageLibrary
                 _data = binaryReader.ReadUInt16();                      // Read in the data pointer
                 _items = binaryReader.ReadByte();                       // Read in the number of fields
 
-                Array.Resize(ref _fields, _items);
+                Array.Resize(ref _properties, _items);
                 UInt16 pointer = 0;
                 for (int count = 0; count < _items; count++)
                 {
@@ -335,8 +351,8 @@ namespace StorageLibrary
                     string name = binaryReader.ReadString();                    // Read the field Name
                     if (flag == 0)  // Not deleted or spare so add rather than skip
                     {
-                        Field field = new Field(name, flag, order, typeCode, length, primary);
-                        _fields[count] = field;
+                        Property field = new Property(name, flag, order, typeCode, length, primary);
+                        _properties[count] = field;
                     }
                     pointer = (UInt16)(pointer + offset);
                 }
@@ -404,7 +420,7 @@ namespace StorageLibrary
         /// Add a new database field
         /// </summary>
         /// <param name="field"></param>
-        internal void Add(Field field)
+        internal void Add(Property field)
         {
             string filenamePath = System.IO.Path.Combine(_path, _name);
             lock (_lockObject)
@@ -425,59 +441,68 @@ namespace StorageLibrary
                 // The structure repeats
                 //
 
-                byte order = 0;
-                TypeCode typeCode = field.Type;
-
-                // Update the local cache
-
-                Array.Resize(ref _fields, _items + 1);
-                _fields[_items] = field;
-
-                // Calcualte the data size
-
-                int offset = 0;
-                int length = field.Name.Length;
-                offset = offset + 6 + LEB128.Size(length) + length;     // 5 = number of bytes before string name
-
-                // move the data
-
-                // this would need to shift the data area upwards to accomodate the
-                // new column entry. Seems like a design problem, but may be somthing
-                // to start with assuming that columns are not generally added. Could
-                // create some spare space when we initialise the database.
-
-                // Add the new field
-
-                BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Open));
-                binaryWriter.Seek(_data, SeekOrigin.Begin);
-
-                byte flag = 0;                                  // Normal
-                binaryWriter.Write((byte)offset);               // write the offset to next field
-                binaryWriter.Write(flag);                       // write the field Flag
-                binaryWriter.Write(order);                      // write the field Order
-                binaryWriter.Write((byte)typeCode);             // write the field Type
-                binaryWriter.Write((sbyte)field.Length);        // write the field Length
-                if (field.Primary == true)                      // write the primary key indicator (byte)
+                if (_size == 0)
                 {
-                    binaryWriter.Write((byte)1);
+
+                    byte order = 0;
+                    TypeCode typeCode = field.Type;
+
+                    // Update the local cache
+
+                    Array.Resize(ref _properties, _items + 1);
+                    _properties[_items] = field;
+
+                    // Calcualte the data size
+
+                    int offset = 0;
+                    int length = field.Name.Length;
+                    offset = offset + 6 + LEB128.Size(length) + length;     // 6 = number of bytes before string name
+
+                    // move the data
+
+                    // this would need to shift the data area upwards to accomodate the
+                    // new filed entry. Seems like a design problem, but may be somthing
+                    // to start with assuming that fileds are not generally added later. Could
+                    // create some spare space when we initialise the database so fields
+                    // can get added into the space.
+
+                    // Add the new field
+
+                    BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Open));
+                    binaryWriter.Seek(_data, SeekOrigin.Begin);
+
+                    byte flag = 0;                                  // Normal
+                    binaryWriter.Write((byte)offset);               // write the offset to next field
+                    binaryWriter.Write(flag);                       // write the field Flag
+                    binaryWriter.Write(order);                      // write the field Order
+                    binaryWriter.Write((byte)typeCode);             // write the field Type
+                    binaryWriter.Write((sbyte)field.Length);        // write the field Length
+                    if (field.Primary == true)                      // write the primary key indicator (byte)
+                    {
+                        binaryWriter.Write((byte)1);
+                    }
+                    else
+                    {
+                        binaryWriter.Write((byte)0);
+                    }
+
+                    binaryWriter.Write(field.Name);                 // Write the field Name
+
+                    _data = (UInt16)(_data + offset);               // The data area is moved up as fields are added
+                    _items = (byte)(_items + 1);                    // The number of fields is increased
+
+                    binaryWriter.Seek(0, SeekOrigin.Begin);         //
+                    binaryWriter.Write(_size);                      // Skip over just re-write size
+                    binaryWriter.Write(_pointer);                   // Write pointer to new current record
+                    binaryWriter.Write(_data);                      // Write pointer to new data area
+                    binaryWriter.Write(_items);                     // write new number of records
+                    binaryWriter.Close();                           //
+                    binaryWriter.Dispose();                         //
                 }
                 else
                 {
-                    binaryWriter.Write((byte)0);
+                    throw new InvalidOperationException("Cannot add field as Data already written");
                 }
-
-                binaryWriter.Write(field.Name);                 // Write the field Name
-
-                _data = (UInt16)(_data + offset);               // The data area is moved up as fields are added
-                _items = (byte)(_items + 1);                    // The number of fields is increased
-
-                binaryWriter.Seek(0, SeekOrigin.Begin);         //
-                binaryWriter.Write(_size);                      // Skip over just re-write size
-                binaryWriter.Write(_pointer);                   // Write pointer to new current record
-                binaryWriter.Write(_data);                      // Write pointer to new data area
-                binaryWriter.Write(_items);                     // write new number of records
-                binaryWriter.Close();                           //
-                binaryWriter.Dispose();                         //
             }
         }
 
@@ -485,14 +510,14 @@ namespace StorageLibrary
         /// Delete an existing database field
         /// </summary>
         /// <param name="field"></param>
-        internal bool Remove(Field field)
+        internal bool Remove(Property field)
         {
             int index = 0;
             bool delete = false;
             string filenamePath = System.IO.Path.Combine(_path, _name);
             lock (_lockObject)
             {
-                // The problem here is i dont know the length of the column field
+                // The problem here is i dont know the length of the field
                 // without reading the actual record
 
                 BinaryReader binaryReader = new BinaryReader(new FileStream(filenamePath + ".dbf", FileMode.Open));
@@ -543,10 +568,10 @@ namespace StorageLibrary
 
                 for (int i = index; i < _items - 1; i++)
                 {
-                    _fields[i] = _fields[i + 1];
+                    _properties[i] = _properties[i + 1];
                 }
                 _items--;
-                Array.Resize(ref _fields, _items);
+                Array.Resize(ref _properties, _items);
 
             }
             return (delete);
@@ -564,7 +589,7 @@ namespace StorageLibrary
                 if ((index >= 0) && (index < _items))
                 {
                     // The problem here is that i dont have a pointer index
-                    // and i dont know the length of the column field
+                    // and i dont know the length of the field
                     // without reading the actual reecord and then itterate
                     // through the list
 
@@ -600,10 +625,10 @@ namespace StorageLibrary
 
                     for (int i = index; i < _items-1; i++)
                     {
-                        _fields[i] = _fields[i + 1];
+                        _properties[i] = _properties[i + 1];
                     }
                     _items--;
-                    Array.Resize(ref _fields, _items);
+                    Array.Resize(ref _properties, _items);
 
                 }
                 else
@@ -614,14 +639,14 @@ namespace StorageLibrary
         }
 
         /// <summary>
-        /// Set or update the field attributes
+        /// Set or update the field attributes by index
         /// </summary>
         /// <param name="field"></param>
         /// <param name="index"></param>
-        internal void Set(Field field, int index)
+        internal void Set(Property field, int index)
         {
             // Update the local cache then write to disk but
-            // this is more complex as need to reinsert the column name 
+            // this is more complex as need to reinsert the field name 
             // if it is longer then move the data.
 
             string filenamePath = System.IO.Path.Combine(_path, _name);
@@ -629,7 +654,7 @@ namespace StorageLibrary
             {
                 if ((index >=0) && (index < _items))
                 {
-                    _fields[index] = field;
+                    _properties[index] = field;
 
                     // Calculate the new data size
 
@@ -637,7 +662,7 @@ namespace StorageLibrary
                     int l = field.Name.Length;
                     offset = offset + LEB128.Size(l) + l;
 
-                    // The problem here is i dont know the length of the column field
+                    // The problem here is i dont know the length of the field
                     // without reading the actual reecord
                     // could assume the cache is correct
 
@@ -663,44 +688,51 @@ namespace StorageLibrary
                     {
                         // The new field is longer than the old field
                         // not sure what im doing here now as looks wrong
-                        // what it should do it mark the column as deleted and 
+                        // what it should do it mark the fieled as deleted and 
                         // insert the new field at the end if no data written yet
 
-                        BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Open));
-                        binaryWriter.Seek(_data, SeekOrigin.Begin);
-
-                        byte flag = 0;
-                        binaryWriter.Write((byte)length);               // write the length
-                        binaryWriter.Write(flag);                       // write the field Flag
-                        binaryWriter.Write((byte)field.Order);          // write the field Order
-                        binaryWriter.Write((byte)field.Type);           // write the field Type
-                        binaryWriter.Write((sbyte)field.Length);        // write the field Length
-                        if (field.Primary == true)                      // write the primary key indicator (byte)
+                        if (_size == 0)
                         {
-                            binaryWriter.Write((byte)1);
+
+                            BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Open));
+                            binaryWriter.Seek(_data, SeekOrigin.Begin);
+
+                            byte flag = 0;
+                            binaryWriter.Write((byte)length);               // write the length
+                            binaryWriter.Write(flag);                       // write the field Flag
+                            binaryWriter.Write((byte)field.Order);          // write the field Order
+                            binaryWriter.Write((byte)field.Type);           // write the field Type
+                            binaryWriter.Write((sbyte)field.Length);        // write the field Length
+                            if (field.Primary == true)                      // write the primary key indicator (byte)
+                            {
+                                binaryWriter.Write((byte)1);
+                            }
+                            else
+                            {
+                                binaryWriter.Write((byte)0);
+                            }
+                            binaryWriter.Write(field.Name);                 // Write the field Name
+
+                            _data = (UInt16)(_data + offset);
+                            //_items = (byte)(_items + 1);                  // Number of fields remains the same
+
+                            binaryWriter.Seek(0, SeekOrigin.Begin);
+                            _size++;                                        //
+                            binaryWriter.Write(_size);                      // Write the number of records - size
+                            binaryWriter.Write(_pointer);                   // Write pointer to new current record but this is offset from _data
+                            binaryWriter.Write(_data);                      // Write pointer to new data area
+                            binaryWriter.Write(_items);                     // write new number of records
+                            binaryWriter.Close();                           //
+                            binaryWriter.Dispose();                         //
+
+                            // This looks wrong as the order has changed
+                            // and so this will affect the storage
+
                         }
                         else
                         {
-                            binaryWriter.Write((byte)0);
+                            throw new InvalidOperationException("Cannot add field as Data already written");
                         }
-                        binaryWriter.Write(field.Name);                 // Write the field Name
-
-                        _data = (UInt16)(_data + offset);
-                        //_items = (byte)(_items + 1);                  // Number of fields remains the same
-
-                        binaryWriter.Seek(0, SeekOrigin.Begin);
-                        _size++;                                        //
-                        binaryWriter.Write(_size);                      // Write the number of records - size
-                        binaryWriter.Write(_pointer);                   // Write pointer to new current record but this is offset from _data
-                        binaryWriter.Write(_data);                      // Write pointer to new data area
-                        binaryWriter.Write(_items);                     // write new number of records
-                        binaryWriter.Close();                           //
-                        binaryWriter.Dispose();                         //
-
-                        // This looks wrong as the order has changed
-                        // and so this will affect the storage
-
-                        
                     }
                     else
                     {
@@ -734,18 +766,18 @@ namespace StorageLibrary
         }
 
         /// <summary>
-        /// Get the DataColumn
+        /// Get the field by index
         /// </summary>
         /// <param name="index"></param>
         /// <returns></returns>
-        internal Field Get(int index)
+        internal Property Get(int index)
         {
             if ((index >= 0) && (index < _items))
             {
                 // Build from cache, but could 
                 // have an option to rebuild from disk
 
-                Field field = _fields[index];
+                Property field = _properties[index];
                 return (field);
             }
             else
@@ -758,11 +790,11 @@ namespace StorageLibrary
         #region Row Methods
 
         /// <summary>
-        /// Create new row
+        /// Create new record
         /// </summary>
-        /// <param name="row"></param>
+        /// <param name="record"></param>
         /// <returns></returns>
-        internal bool Create(object[] row)
+        internal bool Create(object[] record)
         {
             bool created = false;
             string filenamePath = System.IO.Path.Combine(_path, _name);
@@ -775,10 +807,10 @@ namespace StorageLibrary
 
                 int offset = 0;
                 offset += 1;    // Including the flag
-                for (int i = 0; i < row.Length; i++)
+                for (int i = 0; i < record.Length; i++)
                 {
-                    object data = row[i];
-                    switch (_fields[i].Type)
+                    object data = record[i];
+                    switch (_properties[i].Type)
                     {
                         case TypeCode.Int16:
                             {
@@ -792,7 +824,7 @@ namespace StorageLibrary
                             }
                         case TypeCode.String:
                             {
-                                int length = _fields[i].Length;
+                                int length = _properties[i].Length;
                                 if (length < 0)
                                 {
                                     length = Convert.ToString(data).Length;
@@ -836,10 +868,10 @@ namespace StorageLibrary
                 binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Append));
                 byte flag = 0;
                 binaryWriter.Write(flag);
-                for (int i = 0; i < row.Length; i++)
+                for (int i = 0; i < record.Length; i++)
                 {
-                    object data = row[i];
-                    switch (_fields[i].Type)
+                    object data = record[i];
+                    switch (_properties[i].Type)
                     {
                         case TypeCode.Int16:
                             {
@@ -854,19 +886,19 @@ namespace StorageLibrary
                         case TypeCode.String:
                             {
                                 string text = Convert.ToString(data);
-                                if (_fields[i].Length < 0)
+                                if (_properties[i].Length < 0)
                                 {
                                     binaryWriter.Write(text);
                                 }
                                 else
                                 {
-                                    if (text.Length > _fields[i].Length)
+                                    if (text.Length > _properties[i].Length)
                                     {
-                                        text = text.Substring(0, _fields[i].Length);
+                                        text = text.Substring(0, _properties[i].Length);
                                     }
                                     else
                                     {
-                                        text = text.PadRight(_fields[i].Length, '\0');
+                                        text = text.PadRight(_properties[i].Length, '\0');
                                     }
                                     binaryWriter.Write(text);
                                 }
@@ -886,7 +918,7 @@ namespace StorageLibrary
         }
 
         /// <summary>
-        /// Read Row
+        /// Read record by index
         /// </summary>
         /// <param name="index"></param>
         /// <returns></returns>
@@ -911,7 +943,7 @@ namespace StorageLibrary
                     byte flag = binaryReader.ReadByte();
                     for (int count = 0; count < _items; count++)
                     {
-                        switch (_fields[count].Type)
+                        switch (_properties[count].Type)
                         {
                             case TypeCode.Int16:
                                 {
@@ -940,11 +972,22 @@ namespace StorageLibrary
                     indexReader.Close();
                     indexReader.Dispose();
                 }
+                else
+                {
+                    throw new IndexOutOfRangeException();
+                }
             }
             return (data);
         }
-		
-        internal bool Update(object[] row, int index)
+
+		/// <summary>
+        /// Update the record by index
+        /// </summary>
+        /// <param name="record"></param>
+        /// <param name="index"></param>
+        /// <returns></returns>
+        /// <exception cref="NotImplementedException"></exception>
+        internal bool Update(object[] record, int index)
         {
             bool updated = false;
             string filenamePath = System.IO.Path.Combine(_path, _name);
@@ -966,10 +1009,10 @@ namespace StorageLibrary
 
                     int length = 0;
                     length += 1;    // Including the flag
-                    for (int i = 0; i < row.Length; i++)
+                    for (int i = 0; i < record.Length; i++)
                     {
-                        object data = row[i];
-                        switch (_fields[i].Type)
+                        object data = record[i];
+                        switch (_properties[i].Type)
                         {
                             case TypeCode.Int16:
                                 {
@@ -983,7 +1026,7 @@ namespace StorageLibrary
                                 }
                             case TypeCode.String:
                                 {
-                                    int l = _fields[i].Length;
+                                    int l = _properties[i].Length;
                                     if (l < 0)
                                     {
                                         l = Convert.ToString(data).Length;
@@ -1011,10 +1054,10 @@ namespace StorageLibrary
 
                         byte flag = 0;
                         binaryWriter.Write(flag);
-                        for (int i = 0; i < row.Length; i++)
+                        for (int i = 0; i < record.Length; i++)
                         {
-                            object data = row[i];
-                            switch (_fields[i].Type)
+                            object data = record[i];
+                            switch (_properties[i].Type)
                             {
                                 case TypeCode.Int16:
                                     {
@@ -1029,19 +1072,19 @@ namespace StorageLibrary
                                 case TypeCode.String:
                                     {
                                         string text = Convert.ToString(data);
-                                        if (_fields[i].Length < 0)
+                                        if (_properties[i].Length < 0)
                                         {
                                             binaryWriter.Write(text);
                                         }
                                         else
                                         {
-                                            if (text.Length > _fields[i].Length)
+                                            if (text.Length > _properties[i].Length)
                                             {
-                                                text = text.Substring(0, _fields[i].Length);
+                                                text = text.Substring(0, _properties[i].Length);
                                             }
                                             else
                                             {
-                                                text = text.PadRight(_fields[i].Length, '\0');
+                                                text = text.PadRight(_properties[i].Length, '\0');
                                             }
                                             binaryWriter.Write(text);
                                         }
@@ -1086,10 +1129,10 @@ namespace StorageLibrary
                         binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Append));
                         flag = 0;
                         binaryWriter.Write(flag);
-                        for (int i = 0; i < row.Length; i++)
+                        for (int i = 0; i < record.Length; i++)
                         {
-                            object data = row[i];
-                            switch (_fields[i].Type)
+                            object data = record[i];
+                            switch (_properties[i].Type)
                             {
                                 case TypeCode.Int16:
                                     {
@@ -1104,19 +1147,19 @@ namespace StorageLibrary
                                 case TypeCode.String:
                                     {
                                         string text = Convert.ToString(data);
-                                        if (_fields[i].Length < 0)
+                                        if (_properties[i].Length < 0)
                                         {
                                             binaryWriter.Write(text);
                                         }
                                         else
                                         {
-                                            if (text.Length > _fields[i].Length)
+                                            if (text.Length > _properties[i].Length)
                                             {
-                                                text = text.Substring(0, _fields[i].Length);
+                                                text = text.Substring(0, _properties[i].Length);
                                             }
                                             else
                                             {
-                                                text = text.PadRight(_fields[i].Length, '\0');
+                                                text = text.PadRight(_properties[i].Length, '\0');
                                             }
                                             binaryWriter.Write(text);
                                         }
@@ -1132,10 +1175,19 @@ namespace StorageLibrary
                     updated = true;
                     binaryWriter.Close();
                 }
+                else
+                {
+                    throw new IndexOutOfRangeException();
+                }
                 return (updated);
             }
         }
 
+        /// <summary>
+        /// Delete the record by index
+        /// </summary>
+        /// <param name="index"></param>
+        /// <returns></returns>
         internal bool Delete(int index)
         {
             bool deleted = false;
@@ -1188,6 +1240,10 @@ namespace StorageLibrary
                     deleted = true;
 
                 }
+                else
+                {
+                    throw new IndexOutOfRangeException();
+                }
             }
             return (deleted);
         }
@@ -1195,11 +1251,11 @@ namespace StorageLibrary
         #endregion
         #region Private
 
-        private Field GetField(int index)
+        private Property GetField(int index)
         {
             if (index < _size)
             {
-                Field field = new Field();
+                Property field = new Property();
                 string filenamePath = System.IO.Path.Combine(_path, _name);
                 lock (_lockObject)
                 {
@@ -1226,7 +1282,7 @@ namespace StorageLibrary
                                 primary = true;
                             }
                             string name = binaryReader.ReadString();                // Read the field Name
-                            field = new Field(name, flag, order, typeCode, length, primary);
+                            field = new Property(name, flag, order, typeCode, length, primary);
                             break;
                         }
                     }

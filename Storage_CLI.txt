@@ -1,0 +1,25 @@
+  CREATE -d storage.dbf -k "integer" -v 0 -- create new row with field "Integer" with a value of 0
+
+  READ -d storage.dbf -r 0	-- read row zero
+  
+  UPDATE -d storage.dbf -r 0 -k "integer" -v 0  -- update row zero field "Integer" with a value of 0
+  
+  DELETE -d storage.dbf -r 0 -- delete row zero
+  
+  GET -d storage.dbf ls
+  
+  SET -d storage.dbf 
+  
+  Thoughts are
+  how do you do a full insert
+  
+  
+  
+  STORAGE records create  
+  
+  STORAGE fields list
+  
+  STORAGE field get
+  
+  STORAGE field set  
+  
