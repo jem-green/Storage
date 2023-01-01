@@ -23,7 +23,6 @@ namespace StorageConsole
 
         string name = "";
         string path = "";
-        PersistentStorage<> _storage;
 
         #endregion
 
@@ -70,7 +69,7 @@ namespace StorageConsole
             //throw new NotImplementedException();
         }
 
-        private static void HandleSet(int index, bool all)
+        private static void HandleSet(int index)
         {
             // Field name
             // Field type
