@@ -6,21 +6,38 @@ using System.Text;
 
 namespace StorageLibrary
 {
-    public class DataHandler
+    internal class DataHandler
     {
         /*
         Solve problem of passing the PersistentStorage to the other
         classes, so nest the class 
 
+        Data file
+        =========
 
+                  1         2
         012345678901234567890
         ~--+-¬+~--+-¬.......~--+
            |  |   |            |
            |  |   |            +- Start of data
-           |  |   +- Field1 (6 + name)
-           |  +- Fields(7)
+           |  |   +- Property (6 + name)..
+           |  +- Field (1) 
            +- Header (6)
-        
+
+        +-----------------------+ <- 0
+        | Header (6)            | 
+        +-----------------------+ <- 6
+        | Fields (1)            |
+        +-----------------------+ <- 7 [_start]
+        | Property (6 + name)   |
+        |          ...          |
+        +-----------------------+ <- xx [_top]
+        |          ...          |
+        +-----------------------+ <- yy [_data]
+        |          data         |     
+        |          ...          |  
+        +-----------------------+ <- zz [_pointer]
+
         Header
         ------
         
@@ -32,6 +49,22 @@ namespace StorageLibrary
         -----
          
         0 - unsigned byte - number of fields (0-255) _items
+
+          
+        Field Properties
+        ----------------
+
+        The offset is needed if the field is shortened.
+
+        0 - unsigned byte - Offset assuming a field name is less than 255 characters (0-255)
+        0 - unsigned byte - Flag 0 = normal, 1 = deleted, 2 = spare
+        0 - unsigned byte - Field order
+        0 - unsigned byte - Field type enum value (0-255)
+        0 - unsigned byte - If string or blob set the length (0-255)
+        0 - unsigned byte - Primary key 0 - No, 1 - Yes (0-1)
+        00 - LEB128 - Length of element handled by the binary writer and reader in LEB128 format
+        bytes - string
+        ...
 
         From the type definition
         
@@ -67,7 +100,7 @@ namespace StorageLibrary
         bytes - string
         ...
         
-        Data
+        data
         ----
         
         0 - unsigned byte - flag 0 = normal, 1 = deleted, 2 = spare
@@ -91,12 +124,37 @@ namespace StorageLibrary
         
         The date repeats for each field, there is no record separator
         
-        Index
+        Index file
+        ==========
+
+                  1
+        01234567890
+        ~+
+         |  
+         +- Header (2)
+
+        +-----------------------+ <- 0
+        | Header (2)            | 
+        +-----------------------+ <- 2 [_begin]
+        |         index         |     
+        |          ...          |  
+        +-----------------------+ <- zz 
+
+        header
+        ------
+
+        00 - unsigned int16 - length of the key 
+        //00 - LEB128 - Length of keyname handled by the binary writer and reader in LEB128 format
+        //bytes - string
+
+        index
         -----
 
+        bytes - key (key length)
         00 - unsigned int16 - pointer to data
         00 - unsigned int16 - length of data
         ...
+        bytes - key (key length)
         00 - unsigned int16 - pointer to data + 1 
         00 - unsigned int16 - length of data + 1
         
@@ -106,15 +164,17 @@ namespace StorageLibrary
 
         private string _path = "";
         private string _name = "";
+        private string _index = "";
 
         private readonly object _lockObject = new Object();
-        private UInt16 _size = 0;               // number of rows
+        private UInt16 _size = 0;               // number of elements 65535
         private readonly UInt16 _start = 7;     // Pointer to the start of the field area
         private UInt16 _pointer = 7;            // Pointer to current element offset from the data area
         private UInt16 _data = 7;               // pointer to start of data area
-        private byte _items = 0;                // number of fields
-        private Property[] _properties;         // cache of fields
-
+        private byte _items = 0;                // number of field property items
+        private Property[] _properties;         // Cache of fields
+        private readonly UInt16 _begin = 2;     // Pointer to the beginning of the index area
+        
         /// <summary>
         /// Field properties
         /// </summary>
@@ -228,16 +288,24 @@ namespace StorageLibrary
         /// </summary>
         /// <param name="path"></param>
         /// <param name="name"></param>
-        public DataHandler(string path, string name)
+        internal DataHandler(string path, string name)
         {
             _path = path;
             _name = name;
+            _index = name;
+        }
+
+        internal DataHandler(string path, string name, string index)
+        {
+            _path = path;
+            _name = name;
+            _index = index;
         }
 
         #endregion
         #region Properties
 
-        public string Path
+        internal string Path
         {
             set
             {
@@ -249,7 +317,7 @@ namespace StorageLibrary
             }
         }
 
-        public string Name
+        internal string Name
         {
             set
             {
@@ -261,7 +329,19 @@ namespace StorageLibrary
             }
         }
 
-        public UInt16 Size
+        internal string Index
+        {
+            set
+            {
+                _index = value;
+            }
+            get
+            {
+                return (_index);
+            }
+        }
+
+        internal UInt16 Size
         {
             get
             {
@@ -269,7 +349,7 @@ namespace StorageLibrary
             }
         }
 
-        public byte Items
+        internal byte Items
         {
             get
             {
@@ -277,13 +357,13 @@ namespace StorageLibrary
             }
         }
 
-        internal Property[] Fields
-        {
-            get
-            {
-                return (_properties);
-            }
-        }
+        //internal Property[] Fields
+        //{
+        //    get
+        //    {
+        //        return (_properties);
+        //    }
+        //}
 
         //internal ArrayList List
         //{
@@ -296,10 +376,13 @@ namespace StorageLibrary
         #endregion
         #region Methods
 
-        // General methods (OCR)
+
+        // General methods (OCRN)
         // Open -
         // Close - 
         // Reset -
+        // Index -
+        // New   -
         //
         // Field methods (ARSG)
         // Add -
@@ -327,28 +410,29 @@ namespace StorageLibrary
                 // Assume we only need to read the data and not the index
 
                 BinaryReader binaryReader = new BinaryReader(new FileStream(filenamePath + ".dbf", FileMode.Open));
-                binaryReader.BaseStream.Seek(0, SeekOrigin.Begin);      // Move to position of the current
-                _size = binaryReader.ReadUInt16();                      // Read in the size of data
-                _pointer = binaryReader.ReadUInt16();                   // Read in the current record
-                _data = binaryReader.ReadUInt16();                      // Read in the data pointer
-                _items = binaryReader.ReadByte();                       // Read in the number of fields
+                
+                binaryReader.BaseStream.Seek(0, SeekOrigin.Begin);                      // Move to position of the current
+                _size = binaryReader.ReadUInt16();                                      // Read in the size of data
+                _pointer = binaryReader.ReadUInt16();                                   // Read in the current record
+                _data = binaryReader.ReadUInt16();                                      // Read in the data pointer
+                _items = binaryReader.ReadByte();                                       // Read in the number of fields
 
                 Array.Resize(ref _properties, _items);
                 UInt16 pointer = 0;
                 for (int count = 0; count < _items; count++)
                 {
-                    binaryReader.BaseStream.Seek(_start + pointer, SeekOrigin.Begin);    // Move to the field as may have been updated
-                    byte offset = binaryReader.ReadByte();                      // Read the field offset
-                    byte flag = binaryReader.ReadByte();                        // Read the status flag
-                    byte order = binaryReader.ReadByte();                       // Read the field order
-                    TypeCode typeCode = (TypeCode)binaryReader.ReadByte();      // Read the field Type
-                    sbyte length = binaryReader.ReadSByte();                    // Read the field Length
-                    bool primary = false;                                       // Read if the primary key
+                    binaryReader.BaseStream.Seek(_start + pointer, SeekOrigin.Begin);   // Move to the field as may have been updated
+                    byte offset = binaryReader.ReadByte();                              // Read the field offset
+                    byte flag = binaryReader.ReadByte();                                // Read the status flag
+                    byte order = binaryReader.ReadByte();                               // Read the field order
+                    TypeCode typeCode = (TypeCode)binaryReader.ReadByte();              // Read the field Type
+                    sbyte length = binaryReader.ReadSByte();                            // Read the field Length
+                    bool primary = false;                                               // Read if the primary key
                     if (binaryReader.ReadByte() == 1)
                     {
                         primary = true;
                     }
-                    string name = binaryReader.ReadString();                    // Read the field Name
+                    string name = binaryReader.ReadString();                            // Read the field Name
                     if (flag == 0)  // Not deleted or spare so add rather than skip
                     {
                         Property field = new Property(name, flag, order, typeCode, length, primary);
@@ -361,37 +445,116 @@ namespace StorageLibrary
             }
             return (open);
         }
-        
+
+        /// <summary>
+        /// Create a new database file
+        /// </summary>
+        internal bool New()
+        {
+            bool @new = false;
+            string filenamePath = System.IO.Path.Combine(_path, _name);
+            string indexPath = System.IO.Path.Combine(_path, _index);
+
+            if (File.Exists(filenamePath + ".dbf") == false)
+            {
+                BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.OpenOrCreate));
+                binaryWriter.Seek(0, SeekOrigin.Begin); // Move to start of the file
+
+                _size = 0;                                  // Reset the number of elements
+                _pointer = 0;                               // Offset from the data areas so zero
+                _data = _start;                             // Start of the field area 3 x 16 bit + 1 x 8 bit = 7 bytes
+                _items = 0;                                 // Number of fields
+
+                binaryWriter.Write(_size);                  // Write the size of data
+                binaryWriter.Write(_pointer);               // Write pointer to new current record offset from the data area
+                binaryWriter.Write(_data);                  // Write pointer to new data area
+                binaryWriter.Write(_items);                 // write new number of fields
+                binaryWriter.BaseStream.SetLength(7);       // Fix the size as we are resetting
+                binaryWriter.Close();
+
+                // Create the index
+
+                BinaryWriter indexWriter = new BinaryWriter(new FileStream(indexPath + ".idx", FileMode.OpenOrCreate));
+                indexWriter.Write((UInt16)2);
+                indexWriter.BaseStream.SetLength(2);
+                indexWriter.Close();
+
+                @new = true;
+            }
+            return (@new);
+        }
+
         /// <summary>
         /// Reset the database file and clear any index files
         /// </summary>
         internal bool Reset()
         {
-            bool reset;
+            bool reset = false;
             // Reset the file
             string filenamePath = System.IO.Path.Combine(_path, _name);
-            BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.OpenOrCreate));
+            string indexPath = System.IO.Path.Combine(_path, _index);
+
+            if (File.Exists(filenamePath + ".dbf") == true)
+            {
+                BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.OpenOrCreate));
+                binaryWriter.Seek(0, SeekOrigin.Begin); // Move to start of the file
+
+                _size = 0;                                  // Reset the number of elements
+                _pointer = 0;                               // Offset from the data areas so zero
+                _data = _start;                             // Start of the field area 3 x 16 bit + 1 x 8 bit = 
+                _items = 0;                                 // Number of fields
+
+                binaryWriter.Write(_size);                  // Write the size of data
+                binaryWriter.Write(_pointer);               // Write pointer to new current record offset from the data area
+                binaryWriter.Write(_data);                  // Write pointer to new data area
+                binaryWriter.Write(_items);                 // write new number of fields
+                binaryWriter.BaseStream.SetLength(7);       // Fix the size as we are resetting
+                binaryWriter.Close();
+
+                // Recreate the index
+
+                BinaryWriter indexWriter = new BinaryWriter(new FileStream(indexPath + ".idx", FileMode.OpenOrCreate));
+                indexWriter.Write((UInt16)2);
+                indexWriter.BaseStream.SetLength(2);
+                indexWriter.Close();
+
+                // Clear the field cache
+
+                Array.Resize(ref _properties, _items);
+
+                reset = true;
+            }
+            return (reset);
+        }
+
+        /// <summary>
+        /// Clear the database file and clear any index files
+        /// </summary>
+        internal bool Clear()
+        {
+            bool clear;
+            // Reset the file
+            string filenamePath = System.IO.Path.Combine(_path, _name);
+            string indexPath = System.IO.Path.Combine(_path, _index);
+            BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Open));
             binaryWriter.Seek(0, SeekOrigin.Begin); // Move to start of the file
 
-            _size = 0;
+            _size = 0;                                  // Zero the sizw of the data
             _pointer = 0;                               // Offset from the data areas so zero
-            _data = _start;                             // Start of the data 3 x 16 bit + 1 x 8 bit = 
-            _items = 0;
 
             binaryWriter.Write(_size);                  // Write the size of data
             binaryWriter.Write(_pointer);               // Write pointer to new current record offset from the data area
-            binaryWriter.Write(_data);                  // Write pointer to new data area
-            binaryWriter.Write(_items);                 // write new number of fields
-            binaryWriter.BaseStream.SetLength(7);       // Fix the size as we are resetting
+            binaryWriter.BaseStream.SetLength(_data);   // Fix the size as we are resetting
             binaryWriter.Close();
 
-            // Create the index
+            // Re-create the index
 
-            binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".idx", FileMode.OpenOrCreate));
-            binaryWriter.BaseStream.SetLength(0);
-            binaryWriter.Close();
-            reset = true;
-            return (reset);
+            BinaryWriter indexWriter = new BinaryWriter(new FileStream(indexPath + ".idx", FileMode.Open));
+            indexWriter.Write((UInt16)2);
+            indexWriter.BaseStream.SetLength(2);
+            indexWriter.Close();
+            clear = true;
+            return (clear);
         }
 
         /// <summary>
@@ -401,13 +564,17 @@ namespace StorageLibrary
         {
             bool close = false;
             string filenamePath = System.IO.Path.Combine(_path, _name);
+            string indexPath = System.IO.Path.Combine(_path, _index);
 
             if (File.Exists(filenamePath + ".dbf") == true)
             {
                 // Need to delete both data and index
                 File.Delete(filenamePath + ".dbf");
                 // Assumption here is the the index also exists
-                File.Delete(filenamePath + ".idx");
+                if (File.Exists(indexPath + ".idx") == true)
+                {
+                    File.Delete(indexPath + ".idx");
+                }
                 close = true;
             }
             return (close);
@@ -443,65 +610,80 @@ namespace StorageLibrary
 
                 if (_size == 0)
                 {
-
-                    byte order = 0;
-                    TypeCode typeCode = field.Type;
-
-                    // Update the local cache
-
-                    Array.Resize(ref _properties, _items + 1);
-                    _properties[_items] = field;
-
-                    // Calcualte the data size
-
-                    int offset = 0;
-                    int length = field.Name.Length;
-                    offset = offset + 6 + LEB128.Size(length) + length;     // 6 = number of bytes before string name
-
-                    // move the data
-
-                    // this would need to shift the data area upwards to accomodate the
-                    // new filed entry. Seems like a design problem, but may be somthing
-                    // to start with assuming that fileds are not generally added later. Could
-                    // create some spare space when we initialise the database so fields
-                    // can get added into the space.
-
-                    // Add the new field
-
-                    BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Open));
-                    binaryWriter.Seek(_data, SeekOrigin.Begin);
-
-                    byte flag = 0;                                  // Normal
-                    binaryWriter.Write((byte)offset);               // write the offset to next field
-                    binaryWriter.Write(flag);                       // write the field Flag
-                    binaryWriter.Write(order);                      // write the field Order
-                    binaryWriter.Write((byte)typeCode);             // write the field Type
-                    binaryWriter.Write((sbyte)field.Length);        // write the field Length
-                    if (field.Primary == true)                      // write the primary key indicator (byte)
+                    if (field.Name.Length > 0)
                     {
-                        binaryWriter.Write((byte)1);
+                        if (field.Type != TypeCode.Empty)
+                        {
+
+                            byte order = 0;
+                            TypeCode typeCode = field.Type;
+
+                            // Update the local cache
+
+                            Array.Resize(ref _properties, _items + 1);
+                            _properties[_items] = field;
+
+                            // Calcualte the data size
+
+                            int offset = 0;
+                            int length = field.Name.Length;
+                            offset = offset + 6 + LEB128.Size(length) + length;     // 6 = number of bytes before string name
+
+                            // move the data
+
+                            // this would need to shift the data area upwards to accomodate the
+                            // new field entry. Seems like a design problem, but may be somthing
+                            // to start with assuming that fields are not generally added later. Could
+                            // create some spare space when we initialise the database so fields
+                            // can get added into the space.
+
+                            // Add the new field
+
+                            BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Open));
+                            binaryWriter.Seek(_data, SeekOrigin.Begin);
+
+                            byte flag = 0;                                  // Normal
+                            binaryWriter.Write((byte)offset);               // write the offset to next field
+                            binaryWriter.Write(flag);                       // write the field Flag
+                            binaryWriter.Write(order);                      // write the field Order
+                            binaryWriter.Write((byte)typeCode);             // write the field Type
+                            binaryWriter.Write((sbyte)field.Length);        // write the field Length
+                            if (field.Primary == true)                      // write the primary key indicator (byte)
+                            {
+                                binaryWriter.Write((byte)1);
+                            }
+                            else
+                            {
+                                binaryWriter.Write((byte)0);
+                            }
+
+                            binaryWriter.Write(field.Name);                 // Write the field Name
+
+                            _data = (UInt16)(_data + offset);               // The data area is moved up as fields are added
+                            _items = (byte)(_items + 1);                    // The number of fields is increased
+
+                            binaryWriter.Seek(0, SeekOrigin.Begin);         //
+                            binaryWriter.Write(_size);                      // Skip over just re-write size
+                            binaryWriter.Write(_pointer);                   // Write pointer to new current record
+                            binaryWriter.Write(_data);                      // Write pointer to new data area
+                            binaryWriter.Write(_items);                     // write new number of records
+                            binaryWriter.Close();                           //
+                            binaryWriter.Dispose();                         //
+
+                        }
+                        else
+                        {
+                            throw new ArgumentException("Field name not defined");
+                        }
                     }
                     else
                     {
-                        binaryWriter.Write((byte)0);
+                        throw new ArgumentException("Field type not defined");
                     }
-
-                    binaryWriter.Write(field.Name);                 // Write the field Name
-
-                    _data = (UInt16)(_data + offset);               // The data area is moved up as fields are added
-                    _items = (byte)(_items + 1);                    // The number of fields is increased
-
-                    binaryWriter.Seek(0, SeekOrigin.Begin);         //
-                    binaryWriter.Write(_size);                      // Skip over just re-write size
-                    binaryWriter.Write(_pointer);                   // Write pointer to new current record
-                    binaryWriter.Write(_data);                      // Write pointer to new data area
-                    binaryWriter.Write(_items);                     // write new number of records
-                    binaryWriter.Close();                           //
-                    binaryWriter.Dispose();                         //
                 }
                 else
                 {
-                    throw new InvalidOperationException("Cannot add field as Data already written");
+                    throw new InvalidOperationException("Cannot add field as data already written");
                 }
             }
         }
@@ -513,7 +695,7 @@ namespace StorageLibrary
         internal bool Remove(Property field)
         {
             int index = 0;
-            bool delete = false;
+            bool remove = false;
             string filenamePath = System.IO.Path.Combine(_path, _name);
             lock (_lockObject)
             {
@@ -544,7 +726,7 @@ namespace StorageLibrary
                     if ((flag == 0) && (name == field.Name))
                     {
                         index = counter;
-                        delete = true;
+                        remove = true;
                         break;
                     }
                     else
@@ -574,19 +756,19 @@ namespace StorageLibrary
                 Array.Resize(ref _properties, _items);
 
             }
-            return (delete);
+            return (remove);
         }
 
         /// <summary>
         /// Delete an existing database field by index
         /// </summary>
-        /// <param name="field"></param>
-        internal void RemoveAt(int index)
+        /// <param name="item"></param>
+        internal void RemoveAt(int item)
         {
             string filenamePath = System.IO.Path.Combine(_path, _name);
             lock (_lockObject)
             {
-                if ((index >= 0) && (index < _items))
+                if ((item >= 0) && (item < _items))
                 {
                     // The problem here is that i dont have a pointer index
                     // and i dont know the length of the field
@@ -600,7 +782,7 @@ namespace StorageLibrary
                     {
                         binaryReader.BaseStream.Seek(_start + pointer, SeekOrigin.Begin);
                         offset = binaryReader.ReadByte();
-                        if (counter != index)
+                        if (counter != item)
                         {
                             pointer = (UInt16)(pointer + offset);
                         }
@@ -623,7 +805,7 @@ namespace StorageLibrary
                     // deleted field is skipped when read in the
                     // other methods
 
-                    for (int i = index; i < _items-1; i++)
+                    for (int i = item; i < _items-1; i++)
                     {
                         _properties[i] = _properties[i + 1];
                     }
@@ -642,8 +824,8 @@ namespace StorageLibrary
         /// Set or update the field attributes by index
         /// </summary>
         /// <param name="field"></param>
-        /// <param name="index"></param>
-        internal void Set(Property field, int index)
+        /// <param name="item"></param>
+        internal void Set(Property field, int item)
         {
             // Update the local cache then write to disk but
             // this is more complex as need to reinsert the field name 
@@ -652,9 +834,9 @@ namespace StorageLibrary
             string filenamePath = System.IO.Path.Combine(_path, _name);
             lock (_lockObject)
             {
-                if ((index >=0) && (index < _items))
+                if ((item >=0) && (item < _items))
                 {
-                    _properties[index] = field;
+                    _properties[item] = field;
 
                     // Calculate the new data size
 
@@ -673,7 +855,7 @@ namespace StorageLibrary
                     {
                         binaryReader.BaseStream.Seek(_start + pointer, SeekOrigin.Begin);
                         length = binaryReader.ReadByte();
-                        if (counter != index)
+                        if (counter != item)
                         {
                             pointer = (UInt16)(pointer + length);
                         }
@@ -688,7 +870,7 @@ namespace StorageLibrary
                     {
                         // The new field is longer than the old field
                         // not sure what im doing here now as looks wrong
-                        // what it should do it mark the fieled as deleted and 
+                        // what it should do it mark the field as deleted and 
                         // insert the new field at the end if no data written yet
 
                         if (_size == 0)
@@ -798,12 +980,14 @@ namespace StorageLibrary
         {
             bool created = false;
             string filenamePath = System.IO.Path.Combine(_path, _name);
+            string indexPath = System.IO.Path.Combine(_path, _index);
             lock (_lockObject)
             {
                 // append the new pointer the new index file
 
-                BinaryWriter indexWriter = new BinaryWriter(new FileStream(filenamePath + ".idx", FileMode.Append));
-                indexWriter.Write(_pointer);  // Write the pointer
+                BinaryWriter indexWriter = new BinaryWriter(new FileStream(indexPath + ".idx", FileMode.Append));
+                indexWriter.Write((UInt16)_size);   // write the index assume row
+                indexWriter.Write(_pointer);        // Write the pointer
 
                 int offset = 0;
                 offset += 1;    // Including the flag
@@ -850,7 +1034,7 @@ namespace StorageLibrary
 
                 // Write the header
 
-                BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.OpenOrCreate));
+                BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Open));
                 binaryWriter.Seek(0, SeekOrigin.Begin);                         // Move to start of the file
                 _size++;                                                        // Update the size
                 binaryWriter.Write(_size);                                      // Write the size
@@ -863,7 +1047,7 @@ namespace StorageLibrary
 
                 // Appending will only work if the file is deleted and the updates start again
                 // Not sure if this is the best approach.
-                // Need to update the 
+                // Need to update the ...
 
                 binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Append));
                 byte flag = 0;
@@ -913,52 +1097,88 @@ namespace StorageLibrary
                 binaryWriter.Close();
                 binaryWriter.Dispose();
                 created = true;
-                return (created);
             }
+            return (created);
         }
 
         /// <summary>
-        /// Read record by index
+        /// Insert new record at index
         /// </summary>
-        /// <param name="index"></param>
+        /// <param name="record"></param>
+        /// <param name="row"></param>
         /// <returns></returns>
-        internal object[] Read(int index)
+        /// <exception cref="NotImplementedException"></exception>
+        internal bool Insert(object[] record, int row)
         {
-            object[] data = null;
+            bool insert = false;
 
+            string filenamePath = System.IO.Path.Combine(_path, _name);
+            string indexPath = System.IO.Path.Combine(_path, _index);
             lock (_lockObject)
             {
-                if ((index >= 0) && (index <= _size))
+                if ((row >= 0) && (row < _size))
                 {
-                    data = new object[Items];
-                    string filenamePath = System.IO.Path.Combine(_path, _name);
-                    // Need to search the index file
 
-                    BinaryReader indexReader = new BinaryReader(new FileStream(filenamePath + ".idx", FileMode.Open));
-                    BinaryReader binaryReader = new BinaryReader(new FileStream(filenamePath + ".dbf", FileMode.Open));
-                    indexReader.BaseStream.Seek(index * 4, SeekOrigin.Begin);                               // Get the pointer from the index file
-                    UInt16 pointer = indexReader.ReadUInt16();                                              // Reader the pointer from the index file
-                    binaryReader.BaseStream.Seek(_data + pointer, SeekOrigin.Begin);                                // Move to the correct location in the data file
+                    // insert the pointer into the index file
 
-                    byte flag = binaryReader.ReadByte();
-                    for (int count = 0; count < _items; count++)
+                    FileStream stream = new FileStream(indexPath + ".idx", FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                    BinaryReader indexReader = new BinaryReader(stream);
+                    BinaryWriter indexWriter = new BinaryWriter(stream);
+
+                    // copy the ponter and length data upwards 
+
+                    UInt16 keyLength = 4;
+                    keyLength = indexReader.ReadUInt16();
+                    for (int counter = _size; counter > row; counter--)
                     {
-                        switch (_properties[count].Type)
+                        indexReader.BaseStream.Seek(_begin + (counter - 1) * (keyLength + 4), SeekOrigin.Begin);         // Move to location of the index
+                        UInt16 key = indexReader.ReadUInt16();                                      // Read the key from the index file
+                        UInt16 pointer = indexReader.ReadUInt16();                                  // Read the pointer from the index file
+                        UInt16 length = indexReader.ReadUInt16();                                   // Read the length from the index file
+                        indexWriter.Seek(_begin + counter * (keyLength + 4), SeekOrigin.Begin);     // Move to location of the index
+                        indexWriter.Write(key);
+                        indexWriter.Write(pointer);
+                        indexWriter.Write(length);
+                    }
+                    indexWriter.Close();
+                    indexReader.Close();
+                    stream.Close();
+
+                    // insert the new record
+
+                    indexWriter = new BinaryWriter(new FileStream(indexPath + ".idx", FileMode.Open));
+                    indexWriter.Seek(_begin + row * (keyLength + 4), SeekOrigin.Begin);              // Move to location of the index
+                    indexWriter.Write(_size);           // Write the key
+                    indexWriter.Write(_pointer);        // Write the pointer
+
+                    int offset = 0;
+                    offset += 1;    // Including the flag
+                    for (int i = 0; i < record.Length; i++)
+                    {
+                        object data = record[i];
+                        switch (_properties[i].Type)
                         {
                             case TypeCode.Int16:
                                 {
-                                    data[count] = binaryReader.ReadInt16();
+                                    offset += 2;
                                     break;
                                 }
                             case TypeCode.Int32:
                                 {
-                                    data[count] = binaryReader.ReadInt32();
+                                    offset += 4;
                                     break;
                                 }
                             case TypeCode.String:
                                 {
-                                    // should not need to lenght check again here
-                                    data[count] = binaryReader.ReadString();
+                                    int length = _properties[i].Length;
+                                    if (length < 0)
+                                    {
+                                        length = Convert.ToString(data).Length;
+                                    }
+                                    offset = offset + LEB128.Size(length) + length;     // Includes the byte length parameter
+                                                                                        // ** need to watch this as can be 2 bytes if length is > 127 characters
+                                                                                        // ** https://en.wikipedia.org/wiki/LEB128
+
                                     break;
                                 }
                             default:
@@ -967,14 +1187,155 @@ namespace StorageLibrary
                                 }
                         }
                     }
-                    binaryReader.Close();
-                    binaryReader.Dispose();
-                    indexReader.Close();
-                    indexReader.Dispose();
+
+                    // Update the index length
+
+                    indexWriter.Write((UInt16)offset);  // Write the length
+                    indexWriter.Close();
+                    indexWriter.Dispose();
+
+                    // Write the header
+
+                    BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Open));
+                    binaryWriter.Seek(0, SeekOrigin.Begin);                         // Move to start of the file
+                    _size++;                                                        // Update the size
+                    binaryWriter.Write(_size);                                      // Write the size
+                    _pointer = (UInt16)(_pointer + offset);                         //
+                    binaryWriter.Write((UInt16)(_pointer));                         // Write the pointer
+                    binaryWriter.Close();
+                    binaryWriter.Dispose();
+
+                    // Write the data
+
+                    // Appending will only work if the file is deleted and the updates start again
+                    // Not sure if this is the best approach.
+                    // Need to update the ...
+
+                    binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Append));
+                    byte flag = 0;
+                    binaryWriter.Write(flag);
+                    for (int i = 0; i < record.Length; i++)
+                    {
+                        object data = record[i];
+                        switch (_properties[i].Type)
+                        {
+                            case TypeCode.Int16:
+                                {
+                                    binaryWriter.Write((Int16)data);
+                                    break;
+                                }
+                            case TypeCode.Int32:
+                                {
+                                    binaryWriter.Write((int)data);
+                                    break;
+                                }
+                            case TypeCode.String:
+                                {
+                                    string text = Convert.ToString(data);
+                                    if (_properties[i].Length < 0)
+                                    {
+                                        binaryWriter.Write(text);
+                                    }
+                                    else
+                                    {
+                                        if (text.Length > _properties[i].Length)
+                                        {
+                                            text = text.Substring(0, _properties[i].Length);
+                                        }
+                                        else
+                                        {
+                                            text = text.PadRight(_properties[i].Length, '\0');
+                                        }
+                                        binaryWriter.Write(text);
+                                    }
+                                    break;
+                                }
+                            default:
+                                {
+                                    throw new NotImplementedException();
+                                }
+                        }
+                    }
+                    binaryWriter.Close();
+                    binaryWriter.Dispose();
+                    insert = true;
                 }
                 else
                 {
                     throw new IndexOutOfRangeException();
+                }
+            }
+            return (insert);
+        }
+
+
+        /// <summary>
+        /// Read record by index
+        /// </summary>
+        /// <param name="row"></param>
+        /// <returns></returns>
+        internal object[] Read(int row)
+        {
+            object[] data = null;
+
+            lock (_lockObject)
+            {
+                if (_size > 0)
+                {
+                    if ((row >= 0) && (row < _size))
+                    {
+                        data = new object[Items];
+                        string filenamePath = System.IO.Path.Combine(_path, _name);
+                        string indexPath = System.IO.Path.Combine(_path, _index);
+
+                        // Need to search the index file
+
+                        BinaryReader binaryReader = new BinaryReader(new FileStream(filenamePath + ".dbf", FileMode.Open));
+                        BinaryReader indexReader = new BinaryReader(new FileStream(indexPath + ".idx", FileMode.Open));
+
+                        UInt16 keyLength = 4;
+                        keyLength = indexReader.ReadUInt16();
+                        indexReader.BaseStream.Seek(_begin + row * (keyLength + 4), SeekOrigin.Begin);                               // Get the pointer from the index file
+                        UInt16 key = indexReader.ReadUInt16();
+                        UInt16 pointer = indexReader.ReadUInt16();                                              // Reader the pointer from the index file
+                        binaryReader.BaseStream.Seek(_data + pointer, SeekOrigin.Begin);                                // Move to the correct location in the data file
+
+                        byte flag = binaryReader.ReadByte();
+                        for (int count = 0; count < _items; count++)
+                        {
+                            switch (_properties[count].Type)
+                            {
+                                case TypeCode.Int16:
+                                    {
+                                        data[count] = binaryReader.ReadInt16();
+                                        break;
+                                    }
+                                case TypeCode.Int32:
+                                    {
+                                        data[count] = binaryReader.ReadInt32();
+                                        break;
+                                    }
+                                case TypeCode.String:
+                                    {
+                                        // should not need to lenght check again here
+                                        data[count] = binaryReader.ReadString();
+                                        break;
+                                    }
+                                default:
+                                    {
+                                        throw new NotImplementedException();
+                                    }
+                            }
+                        }
+                        binaryReader.Close();
+                        binaryReader.Dispose();
+                        indexReader.Close();
+                        indexReader.Dispose();
+                    }
+                    else
+                    {
+                        throw new IndexOutOfRangeException();
+                    }
                 }
             }
             return (data);
@@ -984,24 +1345,28 @@ namespace StorageLibrary
         /// Update the record by index
         /// </summary>
         /// <param name="record"></param>
-        /// <param name="index"></param>
+        /// <param name="row"></param>
         /// <returns></returns>
         /// <exception cref="NotImplementedException"></exception>
-        internal bool Update(object[] record, int index)
+        internal bool Update(object[] record, int row)
         {
             bool updated = false;
             string filenamePath = System.IO.Path.Combine(_path, _name);
+            string indexPath = System.IO.Path.Combine(_path, _index);
             lock (_lockObject)
             {
-                if ((index >= 0) && (index <= _size))
+                if ((row >= 0) && (row < _size))
                 {
                     // Calculate the size of the new record
                     // if greater than the space append and update
                     // the index
                     // if less then overwite the space with the new record
 
-                    BinaryReader indexReader = new BinaryReader(new FileStream(filenamePath + ".idx", FileMode.Open));
-                    indexReader.BaseStream.Seek(index * 4, SeekOrigin.Begin);                               // Get the pointer from the index file
+                    BinaryReader indexReader = new BinaryReader(new FileStream(indexPath + ".idx", FileMode.Open));
+                    UInt16 keyLength = 4;
+                    keyLength = indexReader.ReadUInt16();
+                    indexReader.BaseStream.Seek(_begin + row * (keyLength + 4), SeekOrigin.Begin);                               // Get the pointer from the index file
+                    UInt16 key = indexReader.ReadUInt16();
                     UInt16 pointer = indexReader.ReadUInt16();                                      // Reader the pointer from the index file
                     UInt16 offset = indexReader.ReadUInt16();
                     indexReader.Close();
@@ -1044,8 +1409,8 @@ namespace StorageLibrary
                         }
                     }
 
-                    BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.OpenOrCreate));
-                    if (offset > length)
+                    BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Open));
+                    if (offset >= length)
                     {
                         // If there is space write the data
 
@@ -1107,8 +1472,9 @@ namespace StorageLibrary
 
                         // Overwrite the index to use the new location at the end of the file
 
-                        BinaryWriter indexWriter = new BinaryWriter(new FileStream(filenamePath + ".idx", FileMode.Open));
-                        indexWriter.Seek(index * 4, SeekOrigin.Begin);   // Get the index pointer
+                        BinaryWriter indexWriter = new BinaryWriter(new FileStream(indexPath + ".idx", FileMode.Open));
+                        indexWriter.Seek(_begin + row * (keyLength + 4), SeekOrigin.Begin);   // Get the index pointer
+                        indexWriter.Write((UInt16)key); // check the key
                         indexWriter.Write(_pointer);
                         indexWriter.Close();
 
@@ -1179,32 +1545,36 @@ namespace StorageLibrary
                 {
                     throw new IndexOutOfRangeException();
                 }
-                return (updated);
             }
+            return (updated);
         }
 
         /// <summary>
         /// Delete the record by index
         /// </summary>
-        /// <param name="index"></param>
+        /// <param name="row"></param>
         /// <returns></returns>
-        internal bool Delete(int index)
+        internal bool Delete(int row)
         {
             bool deleted = false;
             string filenamePath = System.IO.Path.Combine(_path, _name);
+            string indexPath = System.IO.Path.Combine(_path, _index);
             lock (_lockObject)
             {
-                if ((index >= 0) && (index <= _size))
+                if ((row >= 0) && (row < _size))
                 {
                     // Write the header
 
-                    BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.OpenOrCreate));
+                    BinaryWriter binaryWriter = new BinaryWriter(new FileStream(filenamePath + ".dbf", FileMode.Open));
                     binaryWriter.Seek(0, SeekOrigin.Begin);     // Move to start of the file
                     _size--;
                     binaryWriter.Write(_size);                  // Write the new size
 
-                    BinaryReader indexReader = new BinaryReader(new FileStream(filenamePath + ".idx", FileMode.Open));
-                    indexReader.BaseStream.Seek(index * 4, SeekOrigin.Begin);                               // Get the pointer from the index file
+                    UInt16 keyLength = 4;
+                    BinaryReader indexReader = new BinaryReader(new FileStream(indexPath + ".idx", FileMode.Open));
+                    keyLength = indexReader.ReadUInt16();
+                    indexReader.BaseStream.Seek(_begin + row * (keyLength + 4), SeekOrigin.Begin);                               // Get the pointer from the index file
+                    UInt16 KEY = indexReader.ReadUInt16();
                     UInt16 pointer = indexReader.ReadUInt16();
                     indexReader.Close();
 
@@ -1217,18 +1587,18 @@ namespace StorageLibrary
 
                     // Overwrite the index
 
-                    FileStream stream = new FileStream(filenamePath + ".idx", FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                    FileStream stream = new FileStream(indexPath + ".idx", FileMode.Open, FileAccess.ReadWrite, FileShare.None);
                     indexReader = new BinaryReader(stream);
                     BinaryWriter indexWriter = new BinaryWriter(stream);
 
                     // copy the ponter and length data downwards 
 
-                    for (int counter = index; counter < _size; counter++)
+                    for (int counter = row; counter < _size; counter++)
                     {
-                        indexReader.BaseStream.Seek((counter + 1) * 4, SeekOrigin.Begin); // Move to location of the index
-                        pointer = indexReader.ReadUInt16();                                              // Read the pointer from the index file
+                        indexReader.BaseStream.Seek(_begin + (counter + 1) * (keyLength + 4), SeekOrigin.Begin); // Move to location of the index
+                        pointer = indexReader.ReadUInt16();                                           // Read the pointer from the index file
                         UInt16 offset = indexReader.ReadUInt16();
-                        indexWriter.Seek(counter * 4, SeekOrigin.Begin); // Move to location of the index
+                        indexWriter.Seek(_begin + counter * (keyLength + 4), SeekOrigin.Begin); // Move to location of the index
                         indexWriter.Write(pointer);
                         indexWriter.Write(offset);
                     }
@@ -1251,11 +1621,11 @@ namespace StorageLibrary
         #endregion
         #region Private
 
-        private Property GetField(int index)
+        internal Property GetField(int index)
         {
             if (index < _size)
             {
-                Property field = new Property();
+                Property property = new Property();
                 string filenamePath = System.IO.Path.Combine(_path, _name);
                 lock (_lockObject)
                 {
@@ -1282,13 +1652,13 @@ namespace StorageLibrary
                                 primary = true;
                             }
                             string name = binaryReader.ReadString();                // Read the field Name
-                            field = new Property(name, flag, order, typeCode, length, primary);
+                            property = new Property(name, flag, order, typeCode, length, primary);
                             break;
                         }
                     }
                     binaryReader.Close();
                 }
-                return (field);
+                return (property);
             }
             else
             {
@@ -1301,7 +1671,7 @@ namespace StorageLibrary
     }
 
     #region Static
-    public static class LEB128
+    internal static class LEB128
     {
         public static byte[] Encode(int value)
         {

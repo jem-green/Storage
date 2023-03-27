@@ -17,6 +17,7 @@ namespace StorageTest
                 Int = 0,
                 String = "hello"
             };
+
             storage.Create(t);           // Create a new records
             TestClass d;
             for (int i = 0; i < storage.Size; i++)

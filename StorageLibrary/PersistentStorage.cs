@@ -223,6 +223,23 @@ namespace StorageLibrary
             }
         }
 
+        public void Insert(T data, int index)
+        {
+            if ((index >= 0) && (index <= _handler.Size))    // Inital check to save processing
+            {
+                object[] row = new object[_handler.Items];
+                IList<PropertyInfo> props = new List<PropertyInfo>(data.GetType().GetProperties());
+                int item = 0;
+                foreach (PropertyInfo prop in props)
+                {
+                    object propValue = prop.GetValue(data, null);
+                    row[item] = propValue;
+                    item++;
+                }
+                _handler.Insert(row, index);
+            }
+        }
+
         public IEnumerator GetEnumerator()
         {
             for (int cursor = 0; cursor < _handler.Size; cursor++)

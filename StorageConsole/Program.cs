@@ -21,8 +21,8 @@ namespace StorageConsole
 
         #region Fields
 
-        string name = "";
-        string path = "";
+        string _name = "";
+        string _path = "";
 
         #endregion
 
