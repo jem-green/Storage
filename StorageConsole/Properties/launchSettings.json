@@ -1,7 +1,8 @@
 {
   "profiles": {
     "StorageConsole": {
-      "commandName": "Project"
+      "commandName": "Project",
+      "commandLineArgs": "--version create read --index 0"
     }
   }
 }

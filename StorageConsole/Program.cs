@@ -1,8 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Reflection;
 using StorageLibrary;
-using System.CommandLine;
-using System.CommandLine.Parser;
-using System.CommandLine.Invocation;
 
 namespace StorageConsole
 {
@@ -17,66 +17,51 @@ namespace StorageConsole
         // could pass this as a single parameter if nothing
         // else is supplied
         // so --name --path
-        // and log to the console all the data in cvs format
+        // and log to the console all the data in CSV format
 
         #region Fields
 
-        string _name = "";
-        string _path = "";
+        static bool _readInput = false;
+        static Version _version;
+        static RootCommand _arguments;
+        static List<Parameter> _parameters;
 
         #endregion
 
         static int Main(string[] args)
         {
-            var root = new RootCommand()
+
+            int errorCode = 0;
+            _arguments = new RootCommand();
+            _parameters = new List<Parameter>();
+
+            if (_arguments.ValidateArguments(args))
             {
-                 new Option<int>(new string[] { "--name", "-N" }, description: "The databse name"),
-                 new Option<int>(new string[] { "--path", "-P" }, description: "The databse path"),
-            };
-
-            Command set = new Command("set", "Set the field")
+                _readInput = _arguments.PreProcess(args, out _parameters);
+                if (_readInput)
+                {
+                    string currentLine = Console.In.ReadLine();
+                    while (currentLine != null)
+                    {
+                        //ProcessLine(currentLine);
+                        currentLine = Console.In.ReadLine();
+                    }
+                }
+                errorCode = _arguments.PostProcess(_parameters);
+            }
+            else
             {
-
-            };
-            set.Handler = CommandHandler.Create<int>(HandleSet);
-
-            Command delete = new Command("delete", "Delete record by index")
-            {
-                new Argument<int>("index","Record index")
-            };
-            delete.Handler = CommandHandler.Create<int>(HandleDelete);
-
-            Command update = new Command("update", "Update record by index")
-            {
-                new Option<int>(new string[] { "--index", "-I" }, description: "The record index"),
-                new Option(new string[] { "--all", "-A" }, description: "All records"),
-            };
-            update.Handler = CommandHandler.Create<int, bool>(HandleUpdate);
-
-            root.Add(delete);
-            root.Add(update);
-
-            return root.Invoke(args);
+                Console.Error.Write(_arguments.Usage());
+                errorCode = -1;
+            }
+            return (errorCode);
         }
 
-        private static void HandleDelete(int index)
+        static int Create()
         {
-            //throw new NotImplementedException();
-        }
+            int errorCode = -1;
 
-        private static void HandleUpdate(int index, bool all)
-        {
-            //throw new NotImplementedException();
-        }
-
-        private static void HandleSet(int index)
-        {
-            // Field name
-            // Field type
-            // Field length if string
-
-
-            //throw new NotImplementedException();
+            return (errorCode);
         }
 
     }

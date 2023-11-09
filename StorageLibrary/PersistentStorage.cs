@@ -30,26 +30,33 @@ namespace StorageLibrary
             _handler = new DataHandler(_path, _name);
             if (_handler.Open() == false)
             {
-                _handler.Reset();
-
-                // The logic might be to use the generic structure
-                // to create the fields list to create the new 
-
-                IList<PropertyInfo> props = new List<PropertyInfo>(type.GetProperties());
-                byte index = 0; // Can only have 255 properties
-                if (props.Count < 256)
+                // Could not open, so try and create new
+                if (_handler.New() == true)
                 {
-                    foreach (PropertyInfo prop in props)
+
+                    // The logic might be to use the generic structure
+                    // to create the fields list to create the new 
+
+                    IList<PropertyInfo> props = new List<PropertyInfo>(type.GetProperties());
+                    byte index = 0; // Can only have 255 properties
+                    if (props.Count < 256)
                     {
-                        byte flag = 0; // Flag 0 = normal, 1 = deleted, 2 = spare
-                        DataHandler.Property field = new DataHandler.Property(prop.Name, flag, index, Type.GetTypeCode(prop.PropertyType), -1, false);
-                        _handler.Add(field);
-                        index++;
+                        foreach (PropertyInfo prop in props)
+                        {
+                            byte flag = 0; // Flag 0 = normal, 1 = deleted, 2 = spare
+                            DataHandler.Property field = new DataHandler.Property(prop.Name, flag, index, Type.GetTypeCode(prop.PropertyType), -1, false);
+                            _handler.Add(field);
+                            index++;
+                        }
+                    }
+                    else
+                    {
+                        throw new IndexOutOfRangeException("More than 255 properties");
                     }
                 }
                 else
                 {
-                    throw new IndexOutOfRangeException("More than 255 properties");
+                    throw new InvalidOperationException("Cannot create storage");
                 }
             }
         }
@@ -225,7 +232,7 @@ namespace StorageLibrary
 
         public void Insert(T data, int index)
         {
-            if ((index >= 0) && (index <= _handler.Size))    // Inital check to save processing
+            if ((index >= 0) && (index <= _handler.Size))    // Initial check to save processing
             {
                 object[] row = new object[_handler.Items];
                 IList<PropertyInfo> props = new List<PropertyInfo>(data.GetType().GetProperties());

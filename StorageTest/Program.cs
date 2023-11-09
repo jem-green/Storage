@@ -18,7 +18,7 @@ namespace StorageTest
                 String = "hello"
             };
 
-            storage.Create(t);           // Create a new records
+            storage.Create(t);           // Create a new record
             TestClass d;
             for (int i = 0; i < storage.Size; i++)
             {
@@ -33,6 +33,7 @@ namespace StorageTest
                 Int = 1,
                 String = "hi"
             };
+
             storage.Update(u, 0);       // Update some data
             for (int i = 0; i < storage.Size; i++)
             {
@@ -48,7 +49,7 @@ namespace StorageTest
                 Int = 2,
                 String = "welcome"
             };
-            storage.Create(t);           // Create a new records
+            storage.Create(t);           // Create a new record
 
             for (int i = 0; i < storage.Size; i++)
             {
@@ -73,7 +74,7 @@ namespace StorageTest
                 Int = 3,
                 String = "bonjour"
             };
-            storage.Create(t);           // Create a new records
+            storage.Create(t);           // Create a new record
             for (int i = 0; i < storage.Size; i++)
             {
                 d = storage.Read(i);
